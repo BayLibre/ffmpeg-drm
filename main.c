@@ -542,7 +542,7 @@ int main(int argc, char *argv[])
 
 	c->coded_height = image_height;
 	c->coded_width = image_width;
-	c->pix_fmt = AV_PIX_FMT_NV12;
+	c->pix_fmt = AV_PIX_FMT_DRM_PRIME;
 
 	/* open it */
 	if (avcodec_open2(c, codec, NULL) < 0) {
