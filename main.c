@@ -9,8 +9,8 @@
  *
  * This code has been tested on Linaro's Dragonboard 820c
  *      kernel v4.14.15, venus decoder
- *      ffmpeg 4.0 + lrusacks ffmpeg/DRM support
- *      	https://github.com/lrusak/FFmpeg/commits/v4l2-drmprime
+ *      ffmpeg 4.0 + lrusacks ffmpeg/DRM support + review
+ *      	https://github.com/ldts/ffmpeg  branch lrusak/v4l2-drmprime
  *
  * Copyright (c) 2018 Baylibre
  *
@@ -353,7 +353,7 @@ static int display(struct drm_buffer *drm_buf, int width, int height)
 
 	ret = drm_dmabuf_import(drm_buf, width, height);
 	if (ret) {
-		err("cannot import dmabuf %d\n", ret);
+		err("cannot import dmabuf %d, fd=%d\n", ret, drm_buf->dbuf_fd);
 		return -EFAULT;
 	}
 
