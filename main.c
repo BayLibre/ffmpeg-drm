@@ -72,6 +72,7 @@ struct drm_dev {
 };
 
 static struct drm_dev *pdev;
+static unsigned int drm_format;
 
 #define DBG_TAG "  ffmpeg-drm"
 
@@ -369,12 +370,10 @@ static int display(struct drm_buffer *drm_buf, int width, int height)
 }
 
 static void decode_and_display(AVCodecContext *dec_ctx, AVFrame *frame,
-			AVPacket *pkt, unsigned int drm_fourcc)
+			AVPacket *pkt)
 {
 	AVDRMFrameDescriptor *desc = NULL;
-	struct drm_buffer drm_buf = {
-		.fourcc = drm_fourcc,
-	};
+	struct drm_buffer drm_buf;
 	int ret;
 
 	ret = avcodec_send_packet(dec_ctx, pkt);
@@ -384,7 +383,6 @@ static void decode_and_display(AVCodecContext *dec_ctx, AVFrame *frame,
 	}
 
 	while (ret >= 0) {
-
 		ret = avcodec_receive_frame(dec_ctx, frame);
 		if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
 			return;
@@ -393,10 +391,23 @@ static void decode_and_display(AVCodecContext *dec_ctx, AVFrame *frame,
 			exit(1);
 		}
 
-		/* the picture is allocated by the decoder. no need to free it */
 		desc = (AVDRMFrameDescriptor *) frame->data[0];
 		drm_buf.dbuf_fd = desc->objects[0].fd;
 
+                if (!pdev) {
+                    /* initialize DRM with the format returned in the frame */
+                    ret = drm_init(desc->layers[0].format);
+                    if (ret) {
+                        err("Error initializing drm\n");
+                        exit(1);
+                    }
+
+                    /* remember the format */
+                    drm_format = desc->layers[0].format;
+                }
+
+                /* pass the format in the buffer */
+                drm_buf.fourcc = drm_format;
 		ret = display(&drm_buf, frame->width, frame->height);
 		if (ret < 0)
 			return;
@@ -500,12 +511,6 @@ int main(int argc, char *argv[])
 		exit(0);
 	}
 
-	ret = drm_init(DRM_FORMAT_NV12);
-	if (ret) {
-		err("Error initializing drm\n");
-		exit(1);
-	}
-
 	pkt = av_packet_alloc();
 	if (!pkt) {
 		err("Error allocating packet\n");
@@ -539,10 +544,9 @@ int main(int argc, char *argv[])
 	   MUST be initialized before opening the ffmpeg codec (ie, before
 	   calling avcodec_open2) because this information is not available in
 	   the bitstream). */
-
-	c->coded_height = image_height;
+	c->pix_fmt = AV_PIX_FMT_DRM_PRIME;   /* request a DRM frame */
+        c->coded_height = image_height;
 	c->coded_width = image_width;
-	c->pix_fmt = AV_PIX_FMT_DRM_PRIME;
 
 	/* open it */
 	if (avcodec_open2(c, codec, NULL) < 0) {
@@ -563,7 +567,6 @@ int main(int argc, char *argv[])
 	}
 
 	while (!feof(f)) {
-
 		/* read raw data from the input file */
 		data_size = fread(inbuf, 1, INBUF_SIZE, f);
 		if (!data_size)
@@ -583,12 +586,12 @@ int main(int argc, char *argv[])
 			data_size -= ret;
 
 			if (pkt->size)
-				decode_and_display(c, frame, pkt, DRM_FORMAT_NV12);
+				decode_and_display(c, frame, pkt);
 		}
 	}
 
 	/* flush the decoder */
-	decode_and_display(c, frame, NULL, DRM_FORMAT_NV12);
+	decode_and_display(c, frame, NULL);
 
 	fclose(f);
 
