@@ -422,8 +422,8 @@ static const struct option options[] = {
 		.flag = NULL,
 	},
 	{
-#define image_opt	1
-		.name = "image",
+#define video_opt	1
+		.name = "video",
 		.has_arg = 1,
 		.flag = NULL,
 	},
@@ -453,11 +453,11 @@ static const struct option options[] = {
 static void usage(void)
 {
 	fprintf(stderr, "usage: ffmpeg-drm <options>, with:\n");
-	fprintf(stderr, "--help             display this menu\n");
-	fprintf(stderr, "--image=<name>    image to display\n");
+	fprintf(stderr, "--help            display this menu\n");
+	fprintf(stderr, "--video=<name>    video to display\n");
 	fprintf(stderr, "--codec=<name>    ffmpeg codec: ie h264_v4l2m2m\n");
-	fprintf(stderr, "--width=<value>   image width\n");
-	fprintf(stderr, "--height=<value>  image height\n");
+	fprintf(stderr, "--width=<value>   frame width\n");
+	fprintf(stderr, "--height=<value>  frame height\n");
 	fprintf(stderr, "\n");
 }
 
@@ -474,8 +474,8 @@ int main(int argc, char *argv[])
 	FILE *f;
 	int ret;
 	int lindex, opt;
-	unsigned int image_width = 0, image_height = 0;
-	char *codec_name = NULL, *image_name = NULL;
+	unsigned int frame_width = 0, frame_height = 0;
+	char *codec_name = NULL, *video_name = NULL;
 
 	for (;;) {
 		lindex = -1;
@@ -488,17 +488,17 @@ int main(int argc, char *argv[])
 		case help_opt:
 			usage();
 			exit(0);
-		case image_opt:
-			image_name = optarg;
+		case video_opt:
+			video_name = optarg;
 			break;
 		case codec_opt:
 			codec_name = optarg;
 			break;
 		case width_opt:
-			image_width = atoi(optarg);
+			frame_width = atoi(optarg);
 			break;
 		case height_opt:
-			image_height = atoi(optarg);
+			frame_height = atoi(optarg);
 			break;
 		default:
 			usage();
@@ -506,7 +506,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (!image_width || !image_height || !codec_name || !image_name) {
+	if (!frame_width || !frame_height || !codec_name || !video_name) {
 		usage();
 		exit(0);
 	}
@@ -545,8 +545,8 @@ int main(int argc, char *argv[])
 	   calling avcodec_open2) because this information is not available in
 	   the bitstream). */
 	c->pix_fmt = AV_PIX_FMT_DRM_PRIME;   /* request a DRM frame */
-        c->coded_height = image_height;
-	c->coded_width = image_width;
+        c->coded_height = frame_height;
+	c->coded_width = frame_width;
 
 	/* open it */
 	if (avcodec_open2(c, codec, NULL) < 0) {
@@ -554,9 +554,9 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
-	f = fopen(image_name, "rb");
+	f = fopen(video_name, "rb");
 	if (!f) {
-		err("Could not open %s\n", image_name);
+		err("Could not open %s\n", video_name);
 		exit(1);
 	}
 
@@ -589,13 +589,12 @@ int main(int argc, char *argv[])
 				decode_and_display(c, frame, pkt);
 		}
 	}
-
-	/* flush the decoder */
-	decode_and_display(c, frame, NULL);
-
 	fclose(f);
 
-	av_parser_close(parser);
+        /* flush sending a NULL packet */
+        decode_and_display(c, frame, NULL);
+
+        av_parser_close(parser);
 	avcodec_free_context(&c);
 	av_frame_free(&frame);
 	av_packet_free(&pkt);
