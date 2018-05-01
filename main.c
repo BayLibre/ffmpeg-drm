@@ -350,7 +350,8 @@ err:
 
 static int display(struct drm_buffer *drm_buf, int width, int height)
 {
-	int ret;
+        struct drm_gem_close gem_close;
+        int ret;
 
 	ret = drm_dmabuf_import(drm_buf, width, height);
 	if (ret) {
@@ -365,6 +366,31 @@ static int display(struct drm_buffer *drm_buf, int width, int height)
 	}
 
 	drm_dmabuf_set_plane(drm_buf, width, height, 1);
+
+        /* WARNING: this will _obviously_ cause the screen to flicker!!
+         *
+         *   Instead of using some simple stuff to postpone the release actions
+         *   (a list or a ping/ping buffer or whatever) we will just keep it
+         *   this way for clarity.
+         *
+         *   1. the client MUST remove the fb_handle
+         *   2. the client MUST close the bo_handle (GEM object)
+         *
+         *   Not doing so will cause FFMPEG to _fail_ when releasing the capture
+         *   mmap'ed buffers since the dmabufs are exported to DRM and therefore
+         *   DRM keeps a reference to those buffers.
+         *
+         *   REQBUFS --> MMAP --> EXPBUF --> fb_handle / bo_handle
+         *
+         *   ==> releasing the buffers requires the handles to be released
+         */
+        if (drmModeRmFB(pdev->fd, drm_buf->fb_handle))
+            err("cant remove fb %d\n", drm_buf->fb_handle);
+
+        memset(&gem_close, 0, sizeof gem_close);
+        gem_close.handle = drm_buf->bo_handle;
+        if (drmIoctl(pdev->fd, DRM_IOCTL_GEM_CLOSE, &gem_close) < 0)
+            err("cant close gem: %s\n", strerror(errno));
 
 	return 0;
 }
@@ -591,7 +617,6 @@ int main(int argc, char *argv[])
 	}
 	fclose(f);
 
-        /* flush sending a NULL packet */
         decode_and_display(c, frame, NULL);
 
         av_parser_close(parser);
