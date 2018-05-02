@@ -59,6 +59,9 @@ struct drm_buffer {
 	unsigned int fb_handle;
 	int dbuf_fd;
 	void *mmap_buf;
+	uint32_t pitches[4];
+	uint32_t offsets[4];
+	uint32_t bo_handles[4];
 };
 
 struct drm_dev {
@@ -128,20 +131,8 @@ static int drm_dmabuf_addfb(struct drm_buffer *buf, uint32_t width, uint32_t hei
 	uint32_t stride = DRM_ALIGN(width, 128);
 	uint32_t y_scanlines = DRM_ALIGN(height, 32);
 
-	uint32_t offsets[4] = { 0 };
-	uint32_t pitches[4] = { 0 };
-	uint32_t handles[4] = { 0 };
-
-	offsets[0] = 0;
-	handles[0] = buf->bo_handle;
-	pitches[0] = stride;
-
-	offsets[1] = stride * y_scanlines;
-	handles[1] = buf->bo_handle;
-	pitches[1] = pitches[0];
-
-	ret = drmModeAddFB2(pdev->fd, width, height, buf->fourcc, handles,
-			    pitches, offsets, &buf->fb_handle, 0);
+	ret = drmModeAddFB2(pdev->fd, width, height, buf->fourcc, buf->bo_handles,
+			    buf->pitches, buf->offsets, &buf->fb_handle, 0);
 	if (ret) {
 		err("drmModeAddFB2 failed: %d (%s)\n", ret, strerror(errno));
 		return ret;
@@ -338,7 +329,9 @@ static int drm_init(unsigned int fourcc)
 		goto err;
 	}
 
-	info("drm: Found NV12 plane_id: %x", dev->plane_id);
+	info("drm: Found %c%c%c%c plane_id: %x",
+		(fourcc>>0)&0xff, (fourcc>>8)&0xff, (fourcc>>16)&0xff, (fourcc>>24)&0xff,
+		dev->plane_id);
 
 	return 0;
 
@@ -358,6 +351,10 @@ static int display(struct drm_buffer *drm_buf, int width, int height)
 		err("cannot import dmabuf %d, fd=%d\n", ret, drm_buf->dbuf_fd);
 		return -EFAULT;
 	}
+	drm_buf->bo_handles[0] = drm_buf->bo_handle;
+	drm_buf->bo_handles[1] = drm_buf->bo_handle;
+	drm_buf->bo_handles[2] = drm_buf->bo_handle;
+	drm_buf->bo_handles[3] = drm_buf->bo_handle;
 
 	ret = drm_dmabuf_addfb(drm_buf, width, height);
 	if (ret) {
@@ -419,6 +416,10 @@ static void decode_and_display(AVCodecContext *dec_ctx, AVFrame *frame,
 
 		desc = (AVDRMFrameDescriptor *) frame->data[0];
 		drm_buf.dbuf_fd = desc->objects[0].fd;
+		for (int i = 0; i < desc->layers->nb_planes && i < 4; i++ ) {
+			drm_buf.pitches[i] = desc->layers->planes[i].pitch;
+			drm_buf.offsets[i] = desc->layers->planes[i].offset;
+		}
 
                 if (!pdev) {
                     /* initialize DRM with the format returned in the frame */
