@@ -66,7 +66,7 @@ struct drm_buffer {
 
 struct drm_dev {
 	int fd;
-	uint32_t conn_id, enc_id, crtc_id, fb_id, plane_id;
+	uint32_t conn_id, enc_id, crtc_id, fb_id, plane_id, crtc_idx;
 	uint32_t width, height;
 	uint32_t pitch, size, handle;
 	drmModeModeInfo mode;
@@ -142,7 +142,7 @@ static int drm_dmabuf_addfb(struct drm_buffer *buf, uint32_t width, uint32_t hei
 }
 
 static int find_plane(int fd, unsigned int fourcc, uint32_t *plane_id,
-			uint32_t crtc_id)
+			uint32_t crtc_id, uint32_t crtc_idx)
 {
 	drmModePlaneResPtr planes;
 	drmModePlanePtr plane;
@@ -166,7 +166,12 @@ static int find_plane(int fd, unsigned int fourcc, uint32_t *plane_id,
 			break;
 		}
 
-	for (j = 0; j < plane->count_formats; ++j) {
+		if (!(plane->possible_crtcs & (1 << crtc_idx))) {
+			drmModeFreePlane(plane);
+			continue;
+		}
+
+		for (j = 0; j < plane->count_formats; ++j) {
 			if (plane->formats[j] == format)
 				break;
 		}
@@ -196,6 +201,7 @@ static struct drm_dev *drm_find_dev(int fd)
 	drmModeRes *res;
 	drmModeConnector *conn;
 	drmModeEncoder *enc;
+	drmModeCrtc *crtc = NULL;
 
 	if ((res = drmModeGetResources(fd)) == NULL) {
 		err("drmModeGetResources() failed");
@@ -236,13 +242,19 @@ static struct drm_dev *drm_find_dev(int fd)
 			dev->width = conn->modes[0].hdisplay;
 			dev->height = conn->modes[0].vdisplay;
 
-			/* FIXME: use default encoder/crtc pair */
-			if ((enc = drmModeGetEncoder(fd, dev->enc_id)) == NULL) {
-				err("drmModeGetEncoder() faild");
-				goto free_res;
+			if (conn->encoder_id) {
+				enc = drmModeGetEncoder(fd, conn->encoder_id);
+				if (!enc) {
+					err("drmModeGetEncoder() faild");
+					goto free_res;
+				}
+				if (enc->crtc_id) {
+					crtc = drmModeGetCrtc(fd, enc->crtc_id);
+					if (crtc)
+						dev->crtc_id = enc->crtc_id;
+				}
 			}
 
-			dev->crtc_id = enc->crtc_id;
 			drmModeFreeEncoder(enc);
 
 			dev->saved_crtc = NULL;
@@ -253,6 +265,18 @@ static struct drm_dev *drm_find_dev(int fd)
 		}
 		drmModeFreeConnector(conn);
 	}
+
+	dev->crtc_idx = -1;
+
+	for (i = 0; i < res->count_crtcs; ++i) {
+		if (dev->crtc_id == res->crtcs[i]) {
+			dev->crtc_idx = i;
+			break;
+		}
+	}
+
+	if (dev->crtc_idx == -1)
+		err( "drm: CRTC %u not found\n");
 
 free_res:
 	drmModeFreeResources(res);
@@ -323,7 +347,7 @@ static int drm_init(unsigned int fourcc)
 	dev->fd = fd;
 	pdev = dev;
 
-	ret = find_plane(fd, fourcc, &dev->plane_id, dev->crtc_id);
+	ret = find_plane(fd, fourcc, &dev->plane_id, dev->crtc_id, dev->crtc_idx);
 	if (ret) {
 		err("Cannot find plane\n");
 		goto err;
