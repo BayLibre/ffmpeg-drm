@@ -317,13 +317,13 @@ err:
 	return -1;
 }
 
-static int drm_init(unsigned int fourcc)
+static int drm_init(unsigned int fourcc, const char *device)
 {
 	struct drm_dev *dev_head, *dev;
 	int fd;
 	int ret;
 
-	fd = drm_open("/dev/dri/card0");
+	fd = drm_open(device);
 	if (fd < 0)
 		return -1;
 
@@ -417,7 +417,7 @@ static int display(struct drm_buffer *drm_buf, int width, int height)
 }
 
 static void decode_and_display(AVCodecContext *dec_ctx, AVFrame *frame,
-			AVPacket *pkt)
+			AVPacket *pkt, const char *device)
 {
 	AVDRMFrameDescriptor *desc = NULL;
 	struct drm_buffer drm_buf;
@@ -447,7 +447,7 @@ static void decode_and_display(AVCodecContext *dec_ctx, AVFrame *frame,
 
                 if (!pdev) {
                     /* initialize DRM with the format returned in the frame */
-                    ret = drm_init(desc->layers[0].format);
+                    ret = drm_init(desc->layers[0].format, device);
                     if (ret) {
                         err("Error initializing drm\n");
                         exit(1);
@@ -497,6 +497,12 @@ static const struct option options[] = {
 		.flag = NULL,
 	},
 	{
+#define device_opt	5
+		.name = "device",
+		.has_arg = 1,
+		.flag = NULL,
+	},
+	{
 		.name = NULL,
 	},
 };
@@ -509,6 +515,7 @@ static void usage(void)
 	fprintf(stderr, "--codec=<name>    ffmpeg codec: ie h264_v4l2m2m\n");
 	fprintf(stderr, "--width=<value>   frame width\n");
 	fprintf(stderr, "--height=<value>  frame height\n");
+    fprintf(stderr, "--device=<value>  dri device to use\n");
 	fprintf(stderr, "\n");
 }
 
@@ -527,6 +534,7 @@ int main(int argc, char *argv[])
 	int lindex, opt;
 	unsigned int frame_width = 0, frame_height = 0;
 	char *codec_name = NULL, *video_name = NULL;
+    char *device_name = "/dev/dri/card0";
 
 	for (;;) {
 		lindex = -1;
@@ -550,6 +558,9 @@ int main(int argc, char *argv[])
 			break;
 		case height_opt:
 			frame_height = atoi(optarg);
+			break;
+        case device_opt:
+			device_name = optarg;
 			break;
 		default:
 			usage();
@@ -637,12 +648,12 @@ int main(int argc, char *argv[])
 			data_size -= ret;
 
 			if (pkt->size)
-				decode_and_display(c, frame, pkt);
+				decode_and_display(c, frame, pkt, device_name);
 		}
 	}
 	fclose(f);
 
-        decode_and_display(c, frame, NULL);
+        decode_and_display(c, frame, NULL, device_name);
 
         av_parser_close(parser);
 	avcodec_free_context(&c);
